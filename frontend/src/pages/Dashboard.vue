@@ -19,9 +19,14 @@ onMounted(async () => {
         <div class="stat"><div class="stat-num">{{ stats.batch_count }}</div><div class="stat-label">对账批次</div></div>
         <div class="stat"><div class="stat-num">{{ stats.diff_count }}</div><div class="stat-label">差异行</div></div>
         <div class="stat"><div class="stat-num">{{ stats.open_dispositions }}</div><div class="stat-label">未关处置单</div></div>
+        <div class="stat emphasis"><div class="stat-num">{{ stats.active_buffer }}</div><div class="stat-label">缓冲中行</div></div>
       </div>
       <p style="margin-top:1rem">默认策略 <span class="tag">{{ stats.policy }}</span>（只记差异，不盖写两端）</p>
-      <p><router-link to="/run">去对账台跑一趟 →</router-link></p>
+      <p>
+        <router-link to="/run">去对账台跑一趟 →</router-link>
+        ·
+        <router-link to="/window">配窗口 / 看缓冲 →</router-link>
+      </p>
     </div>
   </div>
 </template>

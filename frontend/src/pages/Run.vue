@@ -36,7 +36,11 @@ onMounted(async () => {
 <template>
   <div class="page">
     <h1>对账台</h1>
-    <p class="muted">选一对账对，抽取左右夹具并对齐。底座策略：只落差异，不自动盖写任何一端。</p>
+    <p class="muted">
+      选一对账对，抽取左右夹具并按已配时间窗对齐。底座策略：只落差异，不自动盖写任何一端。
+      窗内单边行先进缓冲、不落终态；
+      <router-link to="/window">窗口与缓冲</router-link> 里可配窗口并演示完整走势。
+    </p>
     <p v-if="err" class="tag danger">{{ err }}</p>
 
     <div class="panel">
@@ -62,13 +66,24 @@ onMounted(async () => {
         批次 <span class="mono">{{ last.batch_no }}</span> · {{ last.pair_title }} ·
         <span class="tag ok">{{ last.status }}</span>
       </p>
+      <p v-if="last.windowed" class="muted">
+        时间窗 <span class="mono">{{ last.window_start }} → {{ last.window_end }}</span>
+        （时钟 {{ last.as_of }}，迟到 {{ last.max_lateness_seconds }} 秒，逾窗规则 {{ last.liquidation }}）
+      </p>
       <div class="stat-grid">
         <div class="stat"><div class="stat-num">{{ last.matched }}</div><div class="stat-label">一致</div></div>
         <div class="stat"><div class="stat-num">{{ last.left_only }}</div><div class="stat-label">仅左有</div></div>
         <div class="stat"><div class="stat-num">{{ last.right_only }}</div><div class="stat-label">仅右有</div></div>
         <div class="stat"><div class="stat-num">{{ last.field_mismatch }}</div><div class="stat-label">字段不一致</div></div>
-        <div class="stat"><div class="stat-num">{{ last.diff_total }}</div><div class="stat-label">差异合计</div></div>
+        <div class="stat emphasis"><div class="stat-num">{{ last.buffered }}</div><div class="stat-label">缓冲中（不计差异）</div></div>
+        <div class="stat"><div class="stat-num">{{ last.expired_total }}</div><div class="stat-label">逾窗落单边</div></div>
+        <div class="stat"><div class="stat-num">{{ last.outside_window }}</div><div class="stat-label">窗外未参与</div></div>
+        <div class="stat"><div class="stat-num">{{ last.diff_total }}</div><div class="stat-label">终态差异合计</div></div>
       </div>
+      <p v-if="last.buffered" class="muted">
+        缓冲中的行尚未落终态，不计入差异合计；请到
+        <router-link to="/window">窗口缓冲</router-link> 查看或推进窗口。
+      </p>
       <p style="margin-top:0.75rem">
         <router-link :to="{ path: '/diffs', query: { batch_id: last.id } }">查看本批差异 →</router-link>
         ·
@@ -82,7 +97,7 @@ onMounted(async () => {
         <thead>
           <tr>
             <th>批次</th><th>对账对</th><th>状态</th>
-            <th>左/右行</th><th>一致</th><th>仅左</th><th>仅右</th><th>字段差</th><th>时间</th>
+            <th>左/右行</th><th>窗内</th><th>窗口</th><th>一致</th><th>仅左</th><th>仅右</th><th>字段差</th><th>缓冲</th><th>逾窗</th><th>窗外</th><th>时间</th>
           </tr>
         </thead>
         <tbody>
@@ -91,13 +106,18 @@ onMounted(async () => {
             <td>{{ b.pair_title }}</td>
             <td><span class="tag ok">{{ b.status }}</span></td>
             <td class="mono">{{ b.left_rows }} / {{ b.right_rows }}</td>
+            <td class="mono">{{ b.inside_left }} / {{ b.inside_right }}</td>
+            <td class="mono">{{ b.window_start || '全量' }} → {{ b.window_end || '—' }}</td>
             <td>{{ b.matched }}</td>
             <td>{{ b.left_only }}</td>
             <td>{{ b.right_only }}</td>
             <td>{{ b.field_mismatch }}</td>
+            <td>{{ b.buffered }}</td>
+            <td>{{ b.expired_total }}</td>
+            <td>{{ b.outside_window }}</td>
             <td class="mono">{{ b.created_at }}</td>
           </tr>
-          <tr v-if="!batches.length"><td colspan="9" class="muted">还没有批次，先跑一趟。</td></tr>
+          <tr v-if="!batches.length"><td colspan="12" class="muted">还没有批次，先跑一趟。</td></tr>
         </tbody>
       </table>
     </div>

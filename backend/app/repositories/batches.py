@@ -23,10 +23,18 @@ def _diff(r: sqlite3.Row | None) -> dict[str, Any] | None:
     return d
 
 
-def list_batches(conn: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        "SELECT * FROM reconcile_batches ORDER BY id DESC LIMIT ?", (limit,)
-    ).fetchall()
+def list_batches(
+    conn: sqlite3.Connection, limit: int = 50, pair_id: int | None = None
+) -> list[dict[str, Any]]:
+    if pair_id is None:
+        rows = conn.execute(
+            "SELECT * FROM reconcile_batches ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM reconcile_batches WHERE pair_id=? ORDER BY id DESC LIMIT ?",
+            (pair_id, limit),
+        ).fetchall()
     return [_batch(r) for r in rows]  # type: ignore[misc]
 
 
@@ -59,13 +67,21 @@ def insert_batch(
     counts: dict[str, int],
     note: str | None,
     created_at: str,
+    windowed: bool = False,
+    window: dict[str, Any] | None = None,
 ) -> int:
+    window = window or {}
     cur = conn.execute(
         """
         INSERT INTO reconcile_batches(
             batch_no, pair_id, status, left_rows, right_rows, matched,
-            left_only, right_only, field_mismatch, diff_total, note, created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            left_only, right_only, field_mismatch, diff_total, note, created_at,
+            windowed, window_start, window_end, max_lateness_seconds,
+            left_time_field, right_time_field, liquidation, as_of,
+            inside_left, inside_right, outside_window, not_arrived,
+            buffered, buffered_left, buffered_right, aligned_after_buffer,
+            expired_left, expired_right, expired_total, discarded, superseded
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             batch_no,
@@ -80,6 +96,27 @@ def insert_batch(
             counts["diff_total"],
             note,
             created_at,
+            1 if windowed else 0,
+            window.get("window_start"),
+            window.get("window_end"),
+            window.get("max_lateness_seconds"),
+            window.get("left_time_field"),
+            window.get("right_time_field"),
+            window.get("liquidation"),
+            window.get("as_of"),
+            counts.get("inside_left", 0),
+            counts.get("inside_right", 0),
+            counts.get("outside_window", 0),
+            counts.get("not_arrived", 0),
+            counts.get("buffered", 0),
+            counts.get("buffered_left", 0),
+            counts.get("buffered_right", 0),
+            counts.get("aligned_after_buffer", 0),
+            counts.get("expired_left", 0),
+            counts.get("expired_right", 0),
+            counts.get("expired_total", 0),
+            counts.get("discarded", 0),
+            counts.get("superseded", 0),
         ),
     )
     return int(cur.lastrowid)
@@ -97,8 +134,9 @@ def insert_diff(
         """
         INSERT INTO reconcile_diffs(
             batch_id, pair_id, kind, align_key_json, left_json, right_json,
-            mismatched_fields_json, severity, created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?)
+            mismatched_fields_json, severity, created_at, origin,
+            expired_from_buffer, event_time, deadline, buffer_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             batch_id,
@@ -110,6 +148,11 @@ def insert_diff(
             json.dumps(diff.get("mismatched_fields") or [], ensure_ascii=False),
             "medium",
             created_at,
+            diff.get("origin") or "direct",
+            1 if diff.get("expired_from_buffer") else 0,
+            diff.get("event_time"),
+            diff.get("deadline"),
+            diff.get("buffer_id"),
         ),
     )
     return int(cur.lastrowid)

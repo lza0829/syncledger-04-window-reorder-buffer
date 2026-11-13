@@ -108,3 +108,16 @@ input, select, textarea {
 }
 .stat-num { font-size: 1.45rem; font-weight: 700; }
 .stat-label { color: var(--muted); font-size: 0.82rem; }
+
+/* window buffer page */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+.form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; color: var(--muted); }
+.form-grid label input, .form-grid label select { width: 100%; color: var(--ink); }
+.demo-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.stat.emphasis { border-color: var(--warn); background: #f6edda; }
+.stat.emphasis .stat-num { color: var(--warn); }
+.demo-result { border-top: 1px solid var(--line); margin-top: 0.85rem; padding-top: 0.5rem; }

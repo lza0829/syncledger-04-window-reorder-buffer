@@ -128,6 +128,61 @@ def init_db() -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS reconcile_windows(
+                id INTEGER PRIMARY KEY,
+                pair_id INTEGER NOT NULL UNIQUE,
+                window_start TEXT,
+                window_end TEXT,
+                max_lateness_seconds INTEGER NOT NULL DEFAULT 0,
+                left_time_field TEXT,
+                right_time_field TEXT,
+                liquidation TEXT NOT NULL DEFAULT 'finalize_side_only',
+                auto_slide INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(pair_id) REFERENCES reconcile_pairs(id)
+            );
+            CREATE TABLE IF NOT EXISTS reconcile_buffer(
+                id INTEGER PRIMARY KEY,
+                pair_id INTEGER NOT NULL,
+                side TEXT NOT NULL,
+                align_key_json TEXT NOT NULL,
+                row_json TEXT NOT NULL,
+                event_time TEXT,
+                deadline TEXT,
+                window_start TEXT,
+                window_end TEXT,
+                state TEXT NOT NULL DEFAULT 'buffered',
+                entered_batch_id INTEGER,
+                source_batch_id INTEGER,
+                settled_batch_id INTEGER,
+                settled_reason TEXT,
+                settled_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(pair_id) REFERENCES reconcile_pairs(id),
+                FOREIGN KEY(entered_batch_id) REFERENCES reconcile_batches(id),
+                FOREIGN KEY(source_batch_id) REFERENCES reconcile_batches(id),
+                FOREIGN KEY(settled_batch_id) REFERENCES reconcile_batches(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_buffer_active
+                ON reconcile_buffer(pair_id, state);
+            CREATE TABLE IF NOT EXISTS reconcile_buffer_events(
+                id INTEGER PRIMARY KEY,
+                batch_id INTEGER NOT NULL,
+                pair_id INTEGER NOT NULL,
+                buffer_id INTEGER,
+                event_type TEXT NOT NULL,
+                state TEXT NOT NULL,
+                side TEXT NOT NULL,
+                align_key_json TEXT NOT NULL,
+                row_json TEXT,
+                event_time TEXT,
+                deadline TEXT,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(batch_id) REFERENCES reconcile_batches(id),
+                FOREIGN KEY(pair_id) REFERENCES reconcile_pairs(id)
+            );
             """
         )
         if conn.execute("SELECT COUNT(*) c FROM reconcile_pairs").fetchone()["c"] == 0:
@@ -178,6 +233,82 @@ def init_db() -> None:
                 "INSERT INTO settings(key, value) VALUES (?, ?)",
                 ("auto_overwrite", "false"),
             )
+        _seed_windows(conn)
+        _ensure_window_columns(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+BATCH_WINDOW_COLUMNS = {
+    "window_start": "TEXT",
+    "window_end": "TEXT",
+    "max_lateness_seconds": "INTEGER",
+    "left_time_field": "TEXT",
+    "right_time_field": "TEXT",
+    "liquidation": "TEXT",
+    "as_of": "TEXT",
+    "inside_left": "INTEGER NOT NULL DEFAULT 0",
+    "inside_right": "INTEGER NOT NULL DEFAULT 0",
+    "outside_window": "INTEGER NOT NULL DEFAULT 0",
+    "not_arrived": "INTEGER NOT NULL DEFAULT 0",
+    "buffered": "INTEGER NOT NULL DEFAULT 0",
+    "buffered_left": "INTEGER NOT NULL DEFAULT 0",
+    "buffered_right": "INTEGER NOT NULL DEFAULT 0",
+    "aligned_after_buffer": "INTEGER NOT NULL DEFAULT 0",
+    "expired_left": "INTEGER NOT NULL DEFAULT 0",
+    "expired_right": "INTEGER NOT NULL DEFAULT 0",
+    "expired_total": "INTEGER NOT NULL DEFAULT 0",
+    "discarded": "INTEGER NOT NULL DEFAULT 0",
+    "superseded": "INTEGER NOT NULL DEFAULT 0",
+    "windowed": "INTEGER NOT NULL DEFAULT 0",
+}
+
+DIFF_WINDOW_COLUMNS = {
+    "origin": "TEXT NOT NULL DEFAULT 'direct'",
+    "expired_from_buffer": "INTEGER NOT NULL DEFAULT 0",
+    "event_time": "TEXT",
+    "deadline": "TEXT",
+    "buffer_id": "INTEGER",
+}
+
+
+def _ensure_window_columns(conn) -> None:
+    from app.db import ensure_columns
+
+    ensure_columns(conn, "reconcile_batches", BATCH_WINDOW_COLUMNS)
+    ensure_columns(conn, "reconcile_diffs", DIFF_WINDOW_COLUMNS)
+
+
+WINDOW_SEEDS = {
+    # Fixture timestamps are fixed (2026-11-12 08:00Z onward; catalog spans
+    # 11-01..11-04), so the seeded windows are pinned to cover them.  The
+    # lateness is deliberately wide enough to leave a few rows buffered in the
+    # first pass so the buffer/alignment/expiry demo is visible.
+    "inventory_hq_vs_store": ("2026-11-12T08:00:00Z", "2026-11-12T08:15:00Z", 900),
+    "payment_vs_ledger": ("2026-11-12T09:00:00Z", "2026-11-12T09:25:00Z", 1200),
+    "sku_catalog_a_vs_b": ("2026-11-01T00:00:00Z", "2026-11-05T00:00:00Z", 86400),
+}
+
+
+def _seed_windows(conn) -> None:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    for pair_row in conn.execute("SELECT id, code FROM reconcile_pairs").fetchall():
+        seed = WINDOW_SEEDS.get(pair_row["code"])
+        if seed is None:
+            continue
+        start, end, lateness = seed
+        left_field = "paid_at" if pair_row["code"] == "payment_vs_ledger" else "updated_at"
+        right_field = "booked_at" if pair_row["code"] == "payment_vs_ledger" else "updated_at"
+        conn.execute(
+            """
+            INSERT INTO reconcile_windows(
+                pair_id, window_start, window_end, max_lateness_seconds,
+                left_time_field, right_time_field, liquidation, auto_slide, updated_at
+            ) VALUES (?,?,?,?,?,?, 'finalize_side_only', 0, ?)
+            ON CONFLICT(pair_id) DO NOTHING
+            """,
+            (pair_row["id"], start, end, lateness, left_field, right_field, now),
+        )

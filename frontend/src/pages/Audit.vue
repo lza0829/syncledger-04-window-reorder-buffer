@@ -47,11 +47,22 @@ watch(batchId, async () => {
     <div class="panel" v-if="summary">
       <p>批次 <span class="mono">{{ summary.batch.batch_no }}</span> · {{ summary.pair?.title }}</p>
       <div class="stat-grid">
-        <div class="stat"><div class="stat-num">{{ summary.diff_count }}</div><div class="stat-label">差异行</div></div>
+        <div class="stat"><div class="stat-num">{{ summary.diff_count }}</div><div class="stat-label">差异行（终态）</div></div>
         <div class="stat"><div class="stat-num">{{ summary.kinds.left_only }}</div><div class="stat-label">仅左有</div></div>
         <div class="stat"><div class="stat-num">{{ summary.kinds.right_only }}</div><div class="stat-label">仅右有</div></div>
         <div class="stat"><div class="stat-num">{{ summary.kinds.field_mismatch }}</div><div class="stat-label">字段不一致</div></div>
+        <div class="stat emphasis"><div class="stat-num">{{ summary.counts.buffered }}</div><div class="stat-label">本批缓冲中</div></div>
+        <div class="stat"><div class="stat-num">{{ summary.counts.aligned_after_buffer }}</div><div class="stat-label">缓冲后对齐</div></div>
+        <div class="stat"><div class="stat-num">{{ summary.counts.expired_total }}</div><div class="stat-label">逾窗落单边</div></div>
+        <div class="stat"><div class="stat-num">{{ summary.counts.discarded }}</div><div class="stat-label">逾窗丢弃</div></div>
+        <div class="stat"><div class="stat-num">{{ summary.counts.outside_window }}</div><div class="stat-label">窗外未参与</div></div>
       </div>
+      <p class="muted" style="margin-top:0.6rem" v-if="summary.window.windowed">
+        时间窗 <span class="mono">{{ summary.window.start }} → {{ summary.window.end }}</span>
+        · 时钟 <span class="mono">{{ summary.window.as_of }}</span>
+        · 逾窗规则 {{ summary.window.liquidation }}
+        · 差异来源：直接 {{ summary.origins.direct }} / 缓冲后对齐 {{ summary.origins.aligned_after_buffer }} / 逾窗 {{ summary.origins.window_expired }}
+      </p>
       <p style="margin-top:0.85rem" class="muted">{{ summary.note }}</p>
       <p>可导出 <span class="tag" :class="summary.export_ready ? 'ok' : 'warn'">{{ summary.export_ready ? '是' : '否' }}</span></p>
     </div>
